@@ -1,3 +1,10 @@
+Research compatibility fork
+===========================
+
+This branch preserves the verified backtest fixes used in research.
+See README_RESEARCH.md for the patch contract, installation and regression controls:
+https://github.com/pusteckiy/hftbacktest/blob/codex/research-fixes-v2.4.4/README_RESEARCH.md
+
 ===========
 HftBacktest
 ===========

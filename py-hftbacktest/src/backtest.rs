@@ -188,6 +188,19 @@ pub extern "C" fn hashmapbt_modify(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn hashmapbt_modify_total(
+    hbt_ptr: *mut HashMapMarketDepthBacktest,
+    asset_no: usize,
+    order_id: u64,
+    price: f64,
+    total_qty: f64,
+    wait: bool,
+) -> i64 {
+    let hbt = unsafe { &mut *hbt_ptr };
+    handle_result(hbt.modify_total(asset_no, order_id, price, total_qty, wait))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn hashmapbt_cancel(
     hbt_ptr: *mut HashMapMarketDepthBacktest,
     asset_no: usize,
@@ -450,6 +463,19 @@ pub extern "C" fn roivecbt_modify(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn roivecbt_modify_total(
+    hbt_ptr: *mut ROIVectorMarketDepthBacktest,
+    asset_no: usize,
+    order_id: u64,
+    price: f64,
+    total_qty: f64,
+    wait: bool,
+) -> i64 {
+    let hbt = unsafe { &mut *hbt_ptr };
+    handle_result(hbt.modify_total(asset_no, order_id, price, total_qty, wait))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn roivecbt_cancel(
     hbt_ptr: *mut ROIVectorMarketDepthBacktest,
     asset_no: usize,
@@ -544,4 +570,25 @@ pub extern "C" fn roivecbt_order_latency(
             true
         },
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hashmapbt_execution_reports(
+    hbt_ptr: *const HashMapMarketDepthBacktest,
+    asset_no: usize,
+    len_ptr: *mut usize,
+) -> *const Event {
+    let hbt = unsafe { &*hbt_ptr };
+    let reports = hbt.execution_reports(asset_no);
+    unsafe { *len_ptr = reports.len(); }
+    reports.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn hashmapbt_clear_execution_reports(
+    hbt_ptr: *mut HashMapMarketDepthBacktest,
+    asset_no: usize,
+) {
+    let hbt = unsafe { &mut *hbt_ptr };
+    hbt.clear_execution_reports(asset_no);
 }

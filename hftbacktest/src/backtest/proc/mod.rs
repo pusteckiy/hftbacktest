@@ -63,6 +63,19 @@ where
         current_timestamp: i64,
     ) -> Result<(), BacktestError>;
 
+    /// Modifies an open order using a target total quantity, including prior executions.
+    ///
+    /// At exchange arrival, executions during request latency are subtracted from this total.
+    fn modify_total(
+        &mut self,
+        _order_id: OrderId,
+        _price: f64,
+        _total_qty: f64,
+        _current_timestamp: i64,
+    ) -> Result<(), BacktestError> {
+        Err(BacktestError::InvalidOrderRequest)
+    }
+
     /// Cancels an open order.
     ///
     /// * `order_id` - Order ID to cancel.
@@ -85,6 +98,10 @@ where
 
     /// Returns a hash map of order IDs and their corresponding [`Order`]s.
     fn orders(&self) -> &HashMap<OrderId, Order>;
+
+    /// Optional receipt journal, enabled by the first clear call.
+    fn execution_reports(&self) -> &[Event] { &[] }
+    fn clear_execution_reports(&mut self) {}
 
     /// Returns the last market trades.
     fn last_trades(&self) -> &[Event];

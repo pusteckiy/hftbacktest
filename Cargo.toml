@@ -1,11 +1,6 @@
 [workspace]
 resolver = "2"
-members = [
-  "hftbacktest",
-  "hftbacktest-derive",
-  "py-hftbacktest",
-  "collector"
-, "connector"]
+members = ["hftbacktest", "hftbacktest-derive", "py-hftbacktest"]
 
 [profile.dev]
 opt-level = 0

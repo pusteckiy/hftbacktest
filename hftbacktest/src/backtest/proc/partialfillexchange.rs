@@ -96,6 +96,7 @@ where
     queue_model: QM,
 
     filled_orders: Vec<OrderId>,
+    executed_qty: HashMap<OrderId, f64>,
 }
 
 impl<AT, LM, QM, MD, FM> PartialFillExchange<AT, LM, QM, MD, FM>
@@ -122,6 +123,7 @@ where
             state,
             queue_model,
             filled_orders: Default::default(),
+            executed_qty: Default::default(),
         }
     }
 
@@ -152,7 +154,7 @@ where
                     // q_ahead is negative since is_filled is true and its value represents the
                     // executable quantity of this order after execution in the queue ahead of this
                     // order.
-                    let exec_qty = if filled_qty > order.leaves_qty {
+                    let exec_qty = if ((order.leaves_qty - filled_qty) / self.depth.lot_size()).round() <= 0.0 {
                         self.filled_orders.push(order.order_id);
                         order.leaves_qty
                     } else {
@@ -192,7 +194,7 @@ where
                     // q_ahead is negative since is_filled is true and its value represents the
                     // executable quantity of this order after execution in the queue ahead of this
                     // order.
-                    let exec_qty = if filled_qty > order.leaves_qty {
+                    let exec_qty = if ((order.leaves_qty - filled_qty) / self.depth.lot_size()).round() <= 0.0 {
                         self.filled_orders.push(order.order_id);
                         order.leaves_qty
                     } else {
@@ -236,10 +238,19 @@ where
         }
         order.exch_timestamp = timestamp;
 
+        *self.executed_qty.entry(order.order_id).or_default() += exec_qty;
+        if order.status == Status::Filled {
+            self.executed_qty.remove(&order.order_id);
+        }
+
         self.state.apply_fill(order);
 
-        if MAKE_RESPONSE {
+        if MAKE_RESPONSE || !maker {
             self.order_e2l.respond(order.clone());
+        }
+        // Each taking fragment was reported; the final request ack must not repeat its fill.
+        if !MAKE_RESPONSE && !maker {
+            order.exec_qty = 0.0;
         }
         Ok(())
     }
@@ -703,6 +714,12 @@ where
             (exch_order.price_tick, exch_order.leaves_qty)
         };
 
+        // An amend specifies a fresh remaining size, never a repeated execution report.
+        order.leaves_qty = order.qty;
+        order.exec_qty = 0.0;
+        order.exec_price_tick = 0;
+        order.status = Status::New;
+
         // The initialization of the order queue position may not occur when the modified quantity
         // is smaller than the previous quantity, depending on the exchanges. It may need to
         // implement exchange-specific specialization.
@@ -720,8 +737,106 @@ where
 
             exch_order.qty = order.qty;
             exch_order.leaves_qty = order.qty;
+            exch_order.exec_qty = 0.0;
+            exch_order.exec_price_tick = 0;
+            exch_order.status = Status::New;
             exch_order.exch_timestamp = timestamp;
             order.leaves_qty = order.qty;
+            order.exch_timestamp = timestamp;
+        }
+        Ok(())
+    }
+
+    fn ack_modify_total(&mut self, order: &mut Order, timestamp: i64) -> Result<(), BacktestError> {
+        let order_id = order.order_id;
+        let request_local_timestamp = order.local_timestamp;
+        let Some(previous) = self.orders.borrow().get(&order_id).cloned() else {
+            if let Some(mut terminal) = self.order_e2l.terminal_order(order_id) {
+                terminal.local_timestamp = request_local_timestamp;
+                terminal.req = Status::Rejected;
+                terminal.exec_qty = 0.0;
+                terminal.exec_price_tick = 0;
+                terminal.exch_timestamp = timestamp;
+                *order = terminal;
+            } else {
+                order.req = Status::Rejected;
+                order.exec_qty = 0.0;
+                order.exec_price_tick = 0;
+                order.exch_timestamp = timestamp;
+            }
+            self.executed_qty.remove(&order_id);
+            return Ok(());
+        };
+
+        let total_qty = order.qty;
+        let executed_qty = self.executed_qty.get(&order_id).copied().unwrap_or(0.0);
+        let leaves_qty = total_qty - executed_qty;
+        if leaves_qty <= 0.0 || (leaves_qty / self.depth.lot_size()).round() <= 0.0 {
+            let mut canceled = previous;
+            self.ack_cancel(&mut canceled, timestamp)?;
+            *order = canceled;
+            order.local_timestamp = request_local_timestamp;
+            order.qty = total_qty.max(executed_qty);
+            order.leaves_qty = 0.0;
+            order.exec_qty = 0.0;
+            order.exec_price_tick = 0;
+            order.status = if executed_qty > 0.0 {
+                Status::Filled
+            } else {
+                Status::Canceled
+            };
+            order.req = Status::None;
+            order.exch_timestamp = timestamp;
+            self.executed_qty.remove(&order_id);
+            return Ok(());
+        }
+
+        let crosses_post_only = order.order_type == OrdType::Limit
+            && order.time_in_force == TimeInForce::GTX
+            && ((order.side == Side::Buy && order.price_tick >= self.depth.best_ask_tick())
+                || (order.side == Side::Sell
+                    && order.price_tick <= self.depth.best_bid_tick()));
+        if crosses_post_only {
+            *order = previous;
+            order.local_timestamp = request_local_timestamp;
+            order.req = Status::Rejected;
+            order.exec_qty = 0.0;
+            order.exec_price_tick = 0;
+            order.exch_timestamp = timestamp;
+            return Ok(());
+        }
+
+        let reset_queue = previous.price_tick != order.price_tick
+            || leaves_qty > previous.leaves_qty;
+        order.leaves_qty = leaves_qty;
+        order.exec_qty = 0.0;
+        order.exec_price_tick = 0;
+        order.status = if executed_qty > 0.0 {
+            Status::PartiallyFilled
+        } else {
+            Status::New
+        };
+
+        if reset_queue {
+            let mut canceled = previous;
+            self.ack_cancel(&mut canceled, timestamp)?;
+            self.ack_new(order, timestamp)?;
+            if order.status == Status::New && executed_qty > 0.0 {
+                order.status = Status::PartiallyFilled;
+                self.orders.borrow_mut().get_mut(&order_id).unwrap().status =
+                    Status::PartiallyFilled;
+            }
+        } else {
+            let mut orders = self.orders.borrow_mut();
+            let exch_order = orders.get_mut(&order_id).unwrap();
+            order.q = exch_order.q.clone();
+            exch_order.price_tick = order.price_tick;
+            exch_order.qty = total_qty;
+            exch_order.leaves_qty = leaves_qty;
+            exch_order.exec_qty = 0.0;
+            exch_order.exec_price_tick = 0;
+            exch_order.status = order.status;
+            exch_order.exch_timestamp = timestamp;
             order.exch_timestamp = timestamp;
         }
         Ok(())
@@ -825,26 +940,44 @@ where
         timestamp: i64,
         _wait_resp_order_id: Option<OrderId>,
     ) -> Result<bool, BacktestError> {
-        while let Some(mut order) = self.order_e2l.receive(timestamp) {
+        while let Some((mut order, total_qty)) =
+            self.order_e2l.receive_with_total_qty(timestamp)
+        {
+            let total_qty_ack = total_qty && order.req == Status::Replaced;
             // Processes a new order.
             if order.req == Status::New {
                 order.req = Status::None;
                 self.ack_new(&mut order, timestamp)?;
+                if order.status == Status::Expired {
+                    // IOC can execute partially and then expire without entering the book.
+                    self.executed_qty.remove(&order.order_id);
+                }
             }
             // Processes a cancel order.
             else if order.req == Status::Canceled {
                 order.req = Status::None;
                 self.ack_cancel(&mut order, timestamp)?;
+                if !self.order_e2l.has_pending_total_qty(order.order_id) {
+                    self.executed_qty.remove(&order.order_id);
+                }
             }
             // Processes a modify order.
             else if order.req == Status::Replaced {
                 order.req = Status::None;
-                self.ack_modify::<false>(&mut order, timestamp)?;
+                if total_qty {
+                    self.ack_modify_total(&mut order, timestamp)?;
+                } else {
+                    self.ack_modify::<false>(&mut order, timestamp)?;
+                }
             } else {
                 return Err(BacktestError::InvalidOrderRequest);
             }
             // Makes the response.
-            self.order_e2l.respond(order);
+            if total_qty_ack {
+                self.order_e2l.respond_total_qty(order);
+            } else {
+                self.order_e2l.respond(order);
+            }
         }
         Ok(false)
     }

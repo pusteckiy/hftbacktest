@@ -675,6 +675,41 @@ impl<MD> Backtest<MD>
 where
     MD: MarketDepth,
 {
+    pub fn execution_reports(&self, asset_no: usize) -> &[Event] {
+        self.local.get(asset_no).unwrap().execution_reports()
+    }
+
+    pub fn clear_execution_reports(&mut self, asset_no: usize) {
+        self.local.get_mut(asset_no).unwrap().clear_execution_reports();
+    }
+
+    /// Modifies an open order with a target total quantity (executed plus remaining).
+    ///
+    /// The exchange subtracts fills through request arrival, including fills not yet reported locally.
+    /// After an accepted amend, Order.qty is this target total and Order.leaves_qty is the remaining size.
+    pub fn modify_total(
+        &mut self,
+        asset_no: usize,
+        order_id: OrderId,
+        price: f64,
+        total_qty: f64,
+        wait: bool,
+    ) -> Result<ElapseResult, BacktestError>
+    where
+        MD: L2MarketDepth,
+    {
+        let local = self.local.get_mut(asset_no).unwrap();
+        local.modify_total(order_id, price, total_qty, self.cur_ts)?;
+
+        if wait {
+            return self.goto::<false>(
+                UNTIL_END_OF_DATA,
+                WaitOrderResponse::Specified { asset_no, order_id },
+            );
+        }
+        Ok(ElapseResult::Ok)
+    }
+
     pub fn builder() -> BacktestBuilder<MD> {
         BacktestBuilder {
             local: vec![],

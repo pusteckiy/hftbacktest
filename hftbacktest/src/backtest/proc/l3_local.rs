@@ -278,8 +278,11 @@ where
                 wait_resp_order_received = true;
             }
 
-            // Processes receiving order response.
-            if order.status == Status::Filled {
+            // Processes receiving order response (full and partial fills).
+            if (order.status == Status::Filled || order.status == Status::PartiallyFilled)
+                && order.exec_qty > 0.0
+                && order.req != Status::Rejected
+            {
                 self.state.apply_fill(&order);
             }
             // Applies the received order response to the local orders.

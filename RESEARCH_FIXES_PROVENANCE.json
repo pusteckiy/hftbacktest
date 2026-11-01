@@ -1,0 +1,22 @@
+{
+  "approved_research_extension_sha256": "7e4e503dc74db93d6c94521907e739fc7c63abf1354632de133f550334677ff8",
+  "dependency_lock_sha256": "cc26cae8b2b0f306819a0180b2c3387a3c01e08adf8a13ef28087d15871aaeb7",
+  "matching_core_source_files": 43,
+  "original_sdist_sha256": "72e5da5724120ef4329d9d01a6e4013e2f63a9d7f5d0c6b86e653a987dd23f20",
+  "patched_files": {
+    "hftbacktest/src/backtest/mod.rs": "916b184192e9598ee09a314cd1ee47a6542cb8ab63c4304c070450b38aeb4cc6",
+    "hftbacktest/src/backtest/order.rs": "78beedc4c5c69038b7c8d220e7cf5bf49847460f30ad983b4e04184ba8f89c9b",
+    "hftbacktest/src/backtest/proc/l3_local.rs": "7e9fdf310f9ac31f34ba47643814cc509fdc3d1319c3308102917739fd20e979",
+    "hftbacktest/src/backtest/proc/local.rs": "544cd28550d96a4715e875410c5ac0a756d3e8964767370d2bee8ca1f705a398",
+    "hftbacktest/src/backtest/proc/mod.rs": "5bf0a9149b8099c54940cc3713cfec60c22fe155858ed64ad2fe4cfbaec95d85",
+    "hftbacktest/src/backtest/proc/nopartialfillexchange.rs": "e08e818be11f667d1368a1bc3519f2aa7f8cc9a447d4698c2b124522955bef57",
+    "hftbacktest/src/backtest/proc/partialfillexchange.rs": "1808c5698192bd51b8d771e851c98ab0ea7f1baabfdf0683618365ea5a3d59b0",
+    "py-hftbacktest/hftbacktest/binding.py": "b30fff282727ea7517b3e0a18ad59aa30839f0e908261e73fbac2ece7701d2d3",
+    "py-hftbacktest/src/backtest.rs": "391f7dc534a03d0b438b906f9091c3e8d3dc38a6cb5a2dc761447bfc6b630ee2"
+  },
+  "upstream_commit": "a244a14250b42d97fc305569c93c4117cd5e1dff",
+  "upstream_credit": "Partial-fill accounting incorporates the fix reviewed in upstream PR #323 (head22856574ca1d877594ecd8fb0f5ef33e1e702cbb)",
+  "upstream_repository": "https://github.com/nkaz001/hftbacktest",
+  "upstream_tag": "py-v2.4.4",
+  "workspace": "same three-crate workspace as the approved PyPI source build"
+}

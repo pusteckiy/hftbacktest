@@ -485,6 +485,12 @@ where
             (exch_order.price_tick, exch_order.leaves_qty)
         };
 
+        // An amend specifies a fresh remaining size, never a repeated execution report.
+        order.leaves_qty = order.qty;
+        order.exec_qty = 0.0;
+        order.exec_price_tick = 0;
+        order.status = Status::New;
+
         // The initialization of the order queue position may not occur when the modified quantity
         // is smaller than the previous quantity, depending on the exchanges. It may need to
         // implement exchange-specific specialization.
@@ -502,11 +508,63 @@ where
 
             exch_order.qty = order.qty;
             exch_order.leaves_qty = order.qty;
+            exch_order.exec_qty = 0.0;
+            exch_order.exec_price_tick = 0;
+            exch_order.status = Status::New;
             exch_order.exch_timestamp = timestamp;
             order.leaves_qty = order.qty;
             order.exch_timestamp = timestamp;
         }
         Ok(())
+    }
+
+    fn ack_modify_total(&mut self, order: &mut Order, timestamp: i64) -> Result<(), BacktestError> {
+        let order_id = order.order_id;
+        let request_local_timestamp = order.local_timestamp;
+        let Some(previous) = self.orders.borrow().get(&order_id).cloned() else {
+            if let Some(mut terminal) = self.order_e2l.terminal_order(order_id) {
+                terminal.local_timestamp = request_local_timestamp;
+                terminal.req = Status::Rejected;
+                terminal.exec_qty = 0.0;
+                terminal.exec_price_tick = 0;
+                terminal.exch_timestamp = timestamp;
+                *order = terminal;
+            } else {
+                order.req = Status::Rejected;
+                order.exec_qty = 0.0;
+                order.exec_price_tick = 0;
+                order.exch_timestamp = timestamp;
+            }
+            return Ok(());
+        };
+
+        let crosses_post_only = order.order_type == OrdType::Limit
+            && order.time_in_force == TimeInForce::GTX
+            && ((order.side == Side::Buy && order.price_tick >= self.depth.best_ask_tick())
+                || (order.side == Side::Sell
+                    && order.price_tick <= self.depth.best_bid_tick()));
+        if crosses_post_only {
+            *order = previous;
+            order.local_timestamp = request_local_timestamp;
+            order.req = Status::Rejected;
+            order.exec_qty = 0.0;
+            order.exec_price_tick = 0;
+            order.exch_timestamp = timestamp;
+            return Ok(());
+        }
+
+        if (order.qty / self.depth.lot_size()).round() <= 0.0 {
+            self.ack_cancel(order, timestamp)?;
+            order.local_timestamp = request_local_timestamp;
+            order.qty = 0.0;
+            order.leaves_qty = 0.0;
+            order.exec_qty = 0.0;
+            order.exec_price_tick = 0;
+            order.req = Status::None;
+            return Ok(());
+        }
+
+        self.ack_modify::<false>(order, timestamp)
     }
 }
 
@@ -607,7 +665,10 @@ where
         timestamp: i64,
         _wait_resp_order_id: Option<OrderId>,
     ) -> Result<bool, BacktestError> {
-        while let Some(mut order) = self.order_e2l.receive(timestamp) {
+        while let Some((mut order, total_qty)) =
+            self.order_e2l.receive_with_total_qty(timestamp)
+        {
+            let total_qty_ack = total_qty && order.req == Status::Replaced;
             // Processes a new order.
             if order.req == Status::New {
                 order.req = Status::None;
@@ -617,16 +678,25 @@ where
             else if order.req == Status::Canceled {
                 order.req = Status::None;
                 self.ack_cancel(&mut order, timestamp)?;
+
             }
             // Processes a modify order.
             else if order.req == Status::Replaced {
                 order.req = Status::None;
-                self.ack_modify::<false>(&mut order, timestamp)?;
+                if total_qty {
+                    self.ack_modify_total(&mut order, timestamp)?;
+                } else {
+                    self.ack_modify::<false>(&mut order, timestamp)?;
+                }
             } else {
                 return Err(BacktestError::InvalidOrderRequest);
             }
             // Makes the response.
-            self.order_e2l.respond(order);
+            if total_qty_ack {
+                self.order_e2l.respond_total_qty(order);
+            } else {
+                self.order_e2l.respond(order);
+            }
         }
         Ok(false)
     }

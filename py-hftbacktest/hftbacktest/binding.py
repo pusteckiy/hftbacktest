@@ -611,6 +611,10 @@ hashmapbt_modify = lib.hashmapbt_modify
 hashmapbt_modify.restype = c_int64
 hashmapbt_modify.argtypes = [c_void_p, c_uint64, c_uint64, c_double, c_double, c_bool]
 
+hashmapbt_modify_total = lib.hashmapbt_modify_total
+hashmapbt_modify_total.restype = c_int64
+hashmapbt_modify_total.argtypes = [c_void_p, c_uint64, c_uint64, c_double, c_double, c_bool]
+
 hashmapbt_cancel = lib.hashmapbt_cancel
 hashmapbt_cancel.restype = c_int64
 hashmapbt_cancel.argtypes = [c_void_p, c_uint64, c_uint64, c_bool]
@@ -837,6 +841,16 @@ class HashMapMarketDepthBacktest:
         """
         return hashmapbt_modify(self.ptr, asset_no, order_id, price, qty, wait)
 
+    def modify_total(self, asset_no: uint64, order_id: uint64, price: float, total_qty: float, wait: bool) -> int64:
+        """
+        Modifies an order with a target total quantity, including executions already received.
+
+        Fills through exchange arrival reduce the remaining quantity, including fills not yet reported locally.
+        After acceptance, Order.qty is the target total and Order.leaves_qty is its remainder. Use the
+        current total for a price-only change, or executed quantity plus desired remaining quantity for a resize.
+        """
+        return hashmapbt_modify_total(self.ptr, asset_no, order_id, price, total_qty, wait)
+
     def cancel(self, asset_no: uint64, order_id: uint64, wait: bool) -> int64:
         """
         Cancels the specified order.
@@ -1057,6 +1071,10 @@ roivecbt_submit_sell_order.argtypes = [
 roivecbt_modify = lib.roivecbt_modify
 roivecbt_modify.restype = c_int64
 roivecbt_modify.argtypes = [c_void_p, c_uint64, c_uint64, c_double, c_double, c_bool]
+
+roivecbt_modify_total = lib.roivecbt_modify_total
+roivecbt_modify_total.restype = c_int64
+roivecbt_modify_total.argtypes = [c_void_p, c_uint64, c_uint64, c_double, c_double, c_bool]
 
 roivecbt_cancel = lib.roivecbt_cancel
 roivecbt_cancel.restype = c_int64
@@ -1279,6 +1297,16 @@ class ROIVectorMarketDepthBacktest:
             * Otherwise, an error occurred.
         """
         return roivecbt_modify(self.ptr, asset_no, order_id, price, qty, wait)
+
+    def modify_total(self, asset_no: uint64, order_id: uint64, price: float, total_qty: float, wait: bool) -> int64:
+        """
+        Modifies an order with a target total quantity, including executions already received.
+
+        Fills through exchange arrival reduce the remaining quantity, including fills not yet reported locally.
+        After acceptance, Order.qty is the target total and Order.leaves_qty is its remainder. Use the
+        current total for a price-only change, or executed quantity plus desired remaining quantity for a resize.
+        """
+        return roivecbt_modify_total(self.ptr, asset_no, order_id, price, total_qty, wait)
 
     def cancel(self, asset_no: uint64, order_id: uint64, wait: bool) -> int64:
         """
